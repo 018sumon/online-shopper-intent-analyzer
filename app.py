@@ -1,6 +1,9 @@
-
+import sys
 import streamlit as st
-import pandas as pd
+
+st.write("Python version:", sys.version)
+st.write("Python executable:", sys.executable)
+
 import joblib
 import matplotlib.pyplot as plt
 

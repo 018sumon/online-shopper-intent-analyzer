@@ -5,34 +5,120 @@ import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 
+from pathlib import Path
+
 from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, roc_curve,
-    confusion_matrix, ConfusionMatrixDisplay
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    confusion_matrix,
+    classification_report,
+    RocCurveDisplay
 )
 
+from sklearn.inspection import permutation_importance
+
+
 # =====================================================
-# PAGE CONFIG
+# 1. PAGE CONFIGURATION
 # =====================================================
+
 st.set_page_config(
-    page_title="Shopper Intelligence",
+    page_title="Online Shopper Intent Analyzer",
     page_icon="🛍️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-DATA_FILE = "online_shoppers_intention.csv"
-MODEL_FILE = "shopper_intent_model.pkl"
+BASE_DIR = Path(__file__).parent
 
-NAVY = "#172554"
-BLUE = "#2563EB"
-PURPLE = "#7C3AED"
-GREEN = "#0D9488"
-CYAN = "#0891B2"
-ORANGE = "#D97706"
+DATA_PATH = BASE_DIR / "online_shoppers_intention.csv"
+MODEL_PATH = BASE_DIR / "shopper_intent_model.pkl"
 
-FEATURE_COLUMNS = [
+
+# =====================================================
+# 2. CUSTOM CSS
+# =====================================================
+
+st.markdown("""
+<style>
+
+.stApp {
+    background-color: #f5f7fb;
+}
+
+.block-container {
+    padding-top: 2rem;
+}
+
+.main-title {
+    font-size: 34px;
+    font-weight: 800;
+    color: #172554;
+}
+
+.subtitle {
+    color: #64748b;
+    font-size: 15px;
+}
+
+.metric-card {
+    background: white;
+    padding: 20px;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.04);
+}
+
+.metric-label {
+    color: #64748b;
+    font-size: 14px;
+}
+
+.metric-value {
+    color: #172554;
+    font-size: 27px;
+    font-weight: 800;
+}
+
+.section-title {
+    font-size: 23px;
+    font-weight: 750;
+    color: #172554;
+}
+
+div.stButton > button {
+    background: #4f46e5;
+    color: white;
+    border-radius: 9px;
+    border: none;
+    font-weight: 700;
+}
+
+div.stButton > button:hover {
+    background: #3730a3;
+    color: white;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# =====================================================
+# 3. FEATURE CONFIGURATION
+# =====================================================
+
+FEATURES = [
     "Administrative",
     "Administrative_Duration",
     "Informational",
@@ -52,1200 +138,1188 @@ FEATURE_COLUMNS = [
     "Weekend"
 ]
 
-# =====================================================
-# CUSTOM CSS
-# =====================================================
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+TARGET = "Revenue"
 
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
+CATEGORICAL_FEATURES = [
+    "Month",
+    "OperatingSystems",
+    "Browser",
+    "Region",
+    "TrafficType",
+    "VisitorType",
+    "Weekend"
+]
 
-.stApp {
-    background: #F3F6FB;
-    color: #172554;
-}
-
-[data-testid="stHeader"] {
-    background: rgba(243,246,251,0.95);
-}
-
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg,#101B36,#292F68);
-}
-
-[data-testid="stSidebar"] * {
-    color: white;
-}
-
-.block-container {
-    max-width: 1500px;
-    padding-top: 1.5rem;
-    padding-bottom: 2rem;
-}
-
-.hero {
-    background:
-        radial-gradient(circle at 85% 15%,rgba(34,211,238,.30),transparent 25%),
-        radial-gradient(circle at 75% 100%,rgba(167,139,250,.35),transparent 35%),
-        linear-gradient(115deg,#101B36,#273779 60%,#5B35A5);
-    border-radius: 22px;
-    padding: 32px;
-    color: white;
-    margin-bottom: 25px;
-    box-shadow: 0 12px 30px rgba(23,37,84,.13);
-}
-
-.hero h1 {
-    color: white !important;
-    font-size: 30px;
-    font-weight: 800;
-    margin: 8px 0;
-}
-
-.hero p {
-    color: #DCE7FF !important;
-    font-size: 14px;
-}
-
-.hero-icon {
-    font-size: 38px;
-}
-
-.kicker {
-    color: #A5F3FC;
-    font-size: 10px;
-    letter-spacing: 2px;
-    font-weight: 800;
-}
-
-.section-title {
-    color: #172554;
-    font-size: 19px;
-    font-weight: 800;
-    margin: 12px 0;
-}
-
-.subtle {
-    color: #64748B;
-    font-size: 12px;
-}
-
-[data-testid="stMetric"] {
-    background: white;
-    border: 1px solid #E5EAF3;
-    border-radius: 16px;
-    padding: 17px;
-    box-shadow: 0 5px 18px rgba(23,37,84,.05);
-}
-
-[data-testid="stMetricLabel"] {
-    color: #64748B;
-    font-weight: 600;
-}
-
-[data-testid="stMetricValue"] {
-    color: #172554;
-    font-weight: 800;
-}
-
-[data-testid="stForm"] {
-    background: white;
-    border: 1px solid #E5EAF3;
-    border-radius: 18px;
-    padding: 20px;
-}
-
-.stButton button,
-.stFormSubmitButton button,
-.stDownloadButton button {
-    border-radius: 10px;
-    font-weight: 700;
-    min-height: 42px;
-}
-
-div[data-testid="stAlert"] {
-    border-radius: 12px;
-}
-
-.footer {
-    text-align: center;
-    color: #94A3B8;
-    font-size: 11px;
-    padding: 25px 0 5px;
-}
-
-hr {
-    border-color: #E2E8F0;
-}
-
-@media(max-width:700px) {
-    .hero {
-        padding: 22px;
-    }
-    .hero h1 {
-        font-size: 23px;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
+NUMERIC_FEATURES = [
+    col for col in FEATURES
+    if col not in CATEGORICAL_FEATURES
+]
 
 
 # =====================================================
-# LOAD DATA AND MODEL
+# 4. LOAD DATA AND SAVED MODEL
 # =====================================================
+
 @st.cache_data
 def load_data():
-    return pd.read_csv(DATA_FILE)
+
+    data = pd.read_csv(DATA_PATH)
+
+    data[TARGET] = data[TARGET].astype(bool)
+
+    for col in NUMERIC_FEATURES:
+
+        data[col] = pd.to_numeric(
+            data[col],
+            errors="coerce"
+        )
+
+    for col in CATEGORICAL_FEATURES:
+
+        data[col] = data[col].astype(object)
+
+        data[col] = data[col].where(
+            pd.notna(data[col]),
+            np.nan
+        )
+
+    return data
 
 
 @st.cache_resource
-def load_model():
-    return joblib.load(MODEL_FILE)
+def load_saved_model():
+
+    if MODEL_PATH.exists():
+        return joblib.load(MODEL_PATH)
+
+    return None
 
 
 try:
+
     df = load_data()
-    model = load_model()
+    saved_model = load_saved_model()
 
 except Exception as e:
-    st.error(f"File loading failed: {e}")
-    st.info(
-        "Keep app.py, online_shoppers_intention.csv "
-        "and shopper_intent_model.pkl in the same folder."
-    )
+
+    st.error(f"File loading error: {e}")
     st.stop()
 
 
-# =====================================================
-# DATA VALIDATION
-# =====================================================
-required_columns = FEATURE_COLUMNS + ["Revenue"]
-
 missing_columns = [
-    col for col in required_columns
+    col for col in FEATURES + [TARGET]
     if col not in df.columns
 ]
 
 if missing_columns:
-    st.error(
-        "Missing dataset columns: "
-        + ", ".join(missing_columns)
-    )
+
+    st.error(f"Missing columns: {missing_columns}")
     st.stop()
 
 
-def convert_target(value):
-    if isinstance(value, (bool, np.bool_)):
-        return int(value)
+# =====================================================
+# 5. PREPROCESSING
+# =====================================================
 
-    if isinstance(value, (int, float, np.integer, np.floating)):
-        return int(value != 0)
+def make_preprocessor(scale_numeric=False):
 
-    return int(
-        str(value).strip().lower()
-        in ["true", "1", "yes"]
+    numeric_steps = [
+        (
+            "imputer",
+            SimpleImputer(strategy="median")
+        )
+    ]
+
+    if scale_numeric:
+
+        numeric_steps.append(
+            ("scaler", StandardScaler())
+        )
+
+    numeric_pipeline = Pipeline(
+        numeric_steps
+    )
+
+    categorical_pipeline = Pipeline([
+        (
+            "imputer",
+            SimpleImputer(
+                strategy="most_frequent",
+                missing_values=np.nan
+            )
+        ),
+        (
+            "encoder",
+            OneHotEncoder(
+                handle_unknown="ignore"
+            )
+        )
+    ])
+
+    return ColumnTransformer([
+        (
+            "numeric",
+            numeric_pipeline,
+            NUMERIC_FEATURES
+        ),
+        (
+            "categorical",
+            categorical_pipeline,
+            CATEGORICAL_FEATURES
+        )
+    ])
+
+
+# =====================================================
+# 6. MODEL TRAINING
+# =====================================================
+
+@st.cache_resource
+def train_and_evaluate(data):
+
+    X = data[FEATURES].copy()
+    y = data[TARGET].astype(bool)
+
+    for col in NUMERIC_FEATURES:
+
+        X[col] = pd.to_numeric(
+            X[col],
+            errors="coerce"
+        )
+
+    for col in CATEGORICAL_FEATURES:
+
+        X[col] = X[col].astype(object)
+
+        X[col] = X[col].where(
+            pd.notna(X[col]),
+            np.nan
+        )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=42,
+        stratify=y
+    )
+
+    models = {
+
+        "Logistic Regression": Pipeline([
+            (
+                "preprocessor",
+                make_preprocessor(scale_numeric=True)
+            ),
+            (
+                "classifier",
+                LogisticRegression(
+                    max_iter=1000,
+                    class_weight="balanced",
+                    random_state=42
+                )
+            )
+        ]),
+
+        "Random Forest": Pipeline([
+            (
+                "preprocessor",
+                make_preprocessor()
+            ),
+            (
+                "classifier",
+                RandomForestClassifier(
+                    n_estimators=200,
+                    class_weight="balanced",
+                    random_state=42,
+                    n_jobs=-1
+                )
+            )
+        ]),
+
+        "Gradient Boosting": Pipeline([
+            (
+                "preprocessor",
+                make_preprocessor()
+            ),
+            (
+                "classifier",
+                GradientBoostingClassifier(
+                    random_state=42
+                )
+            )
+        ])
+
+    }
+
+    results = {}
+    fitted_models = {}
+
+    for name, model in models.items():
+
+        model.fit(
+            X_train,
+            y_train
+        )
+
+        predictions = model.predict(
+            X_test
+        )
+
+        probabilities = model.predict_proba(
+            X_test
+        )[:, 1]
+
+        results[name] = {
+
+            "Accuracy": accuracy_score(
+                y_test,
+                predictions
+            ),
+
+            "Precision": precision_score(
+                y_test,
+                predictions,
+                zero_division=0
+            ),
+
+            "Recall": recall_score(
+                y_test,
+                predictions,
+                zero_division=0
+            ),
+
+            "F1 Score": f1_score(
+                y_test,
+                predictions,
+                zero_division=0
+            ),
+
+            "ROC-AUC": roc_auc_score(
+                y_test,
+                probabilities
+            )
+
+        }
+
+        fitted_models[name] = model
+
+    return (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        results,
+        fitted_models
     )
 
 
-df = df.copy()
-df["Revenue"] = df["Revenue"].apply(convert_target)
+# =====================================================
+# 7. TRAIN MODELS
+# =====================================================
 
-total_sessions = len(df)
-purchase_sessions = int(df["Revenue"].sum())
-no_purchase_sessions = total_sessions - purchase_sessions
+with st.spinner("Training three machine learning models..."):
 
-purchase_rate = (
-    purchase_sessions / total_sessions * 100
-    if total_sessions else 0
+    try:
+
+        (
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+            model_results,
+            fitted_models
+        ) = train_and_evaluate(df)
+
+    except Exception as e:
+
+        st.error(f"Model training error: {e}")
+        st.exception(e)
+        st.stop()
+
+
+# =====================================================
+# 8. SIDEBAR
+# =====================================================
+
+st.sidebar.markdown("# 🛍️ Shopper AI")
+st.sidebar.caption("ANALYTICS DASHBOARD")
+
+page = st.sidebar.radio(
+    "NAVIGATION",
+    [
+        "🏠 Overview",
+        "📊 Dataset Explorer",
+        "🔮 Purchase Predictor",
+        "📈 Model Evaluation",
+        "⭐ Feature Importance"
+    ]
 )
 
+st.sidebar.divider()
+
+st.sidebar.markdown("### PROJECT DETAILS")
+
+st.sidebar.write("🤖 Supervised Learning")
+st.sidebar.write("📁 12,330 Sessions")
+st.sidebar.write("🎯 Target: Revenue")
+st.sidebar.write("🧩 17 Input Features")
+st.sidebar.write("📊 Binary Classification")
+st.sidebar.write("🧠 3 ML Models")
+
+st.sidebar.divider()
+
+st.sidebar.caption("Online Shopper Intent Analyzer")
+
 
 # =====================================================
-# HELPER FUNCTIONS
+# 9. OVERVIEW
 # =====================================================
-def hero(title, subtitle, icon="🛍️"):
-    st.markdown(f"""
-    <div class="hero">
-        <div class="kicker">
-            SHOPPER INTELLIGENCE • DATA ANALYTICS
-        </div>
-        <div class="hero-icon">{icon}</div>
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
-    </div>
-    """, unsafe_allow_html=True)
 
+if page == "🏠 Overview":
 
-def section(title, subtitle=None):
     st.markdown(
-        f'<div class="section-title">{title}</div>',
+        '<div class="main-title">'
+        '🛍️ Online Shopper Intent Analyzer'
+        '</div>',
         unsafe_allow_html=True
     )
 
-    if subtitle:
-        st.markdown(
-            f'<div class="subtle">{subtitle}</div>',
-            unsafe_allow_html=True
-        )
-
-
-def chart_style(ax):
-    ax.set_facecolor("white")
-    ax.grid(axis="y", linestyle="--", alpha=0.2)
-    ax.set_axisbelow(True)
-
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    ax.spines["left"].set_color("#E2E8F0")
-    ax.spines["bottom"].set_color("#E2E8F0")
-
-    ax.tick_params(colors="#475569")
-    ax.set_title(ax.get_title(), color=NAVY)
-
-
-def footer():
-    st.markdown("""
-    <div class="footer">
-        🛍️ SHOPPER INTELLIGENCE
-        <br>
-        ONLINE SHOPPER INTENT ANALYZER
-        <br>
-        Built with Python, Streamlit and Machine Learning
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def get_purchase_probability(estimator, X):
-    if not hasattr(estimator, "predict_proba"):
-        raise ValueError(
-            "The saved model does not support predict_proba."
-        )
-
-    probabilities = estimator.predict_proba(X)
-
-    classes = list(
-        getattr(estimator, "classes_", [0, 1])
+    st.markdown(
+        '<div class="subtitle">'
+        'Online Shopping Purchase Intention Analysis'
+        '</div>',
+        unsafe_allow_html=True
     )
 
-    if 1 in classes:
-        return probabilities[:, classes.index(1)]
+    total_sessions = len(df)
 
-    return probabilities[:, -1]
+    purchases = int(df[TARGET].sum())
 
+    non_purchases = total_sessions - purchases
 
-# =====================================================
-# SIDEBAR
-# =====================================================
-with st.sidebar:
+    purchase_rate = (
+        purchases / total_sessions
+    ) * 100
 
-    st.markdown("""
-    <div style="text-align:center;padding:18px 0">
-        <div style="font-size:45px">🛍️</div>
-        <div style="font-size:23px;font-weight:800">
-            Shopper AI
-        </div>
-        <div style="font-size:10px;letter-spacing:2px;color:#C7D2FE">
-            ANALYTICS DASHBOARD
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
 
-    st.divider()
+    metrics = [
+        ("Total Sessions", f"{total_sessions:,}"),
+        ("Purchase Sessions", f"{purchases:,}"),
+        ("Non-Purchase Sessions", f"{non_purchases:,}"),
+        ("Purchase Rate", f"{purchase_rate:.2f}%")
+    ]
 
-    page = st.radio(
-        "NAVIGATION",
-        [
-            "🏠 Overview",
-            "📊 Dataset Explorer",
-            "🔮 Purchase Predictor",
-            "📈 Model Evaluation"
-        ]
-    )
+    for col, (label, value) in zip(
+        [c1, c2, c3, c4],
+        metrics
+    ):
 
-    st.divider()
+        with col:
 
-    st.markdown("**PROJECT DETAILS**")
-    st.write("🤖 Gradient Boosting")
-    st.write(f"📁 {total_sessions:,} Sessions")
-    st.write("🎯 Target: Revenue")
-    st.write("🧩 17 Input Features")
-
-    st.divider()
-
-    st.caption(
-        "Predictions are estimates, not guarantees."
-    )
-
-
-# =====================================================
-# 1. OVERVIEW
-# =====================================================
-if page == "🏠 Overview":
-
-    hero(
-        "Online Shopper Intent Analyzer",
-        "Turn visitor session behaviour into meaningful purchase insights.",
-        "🛒"
-    )
-
-    section(
-        "Business Overview",
-        "Key indicators calculated directly from your dataset."
-    )
-
-    a, b, c, d = st.columns(4)
-
-    a.metric("Total Sessions", f"{total_sessions:,}")
-    b.metric("Purchase Sessions", f"{purchase_sessions:,}")
-    c.metric("No Purchase", f"{no_purchase_sessions:,}")
-    d.metric("Purchase Rate", f"{purchase_rate:.2f}%")
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">{label}</div>
+                <div class="metric-value">{value}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     st.write("")
 
-    left, right = st.columns(2, gap="large")
+    st.markdown(
+        '<div class="section-title">'
+        '📊 Purchase Distribution'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
-    # PURCHASE DISTRIBUTION
+    left, right = st.columns(2)
+
     with left:
 
-        section(
-            "Purchase Distribution",
-            "Purchase versus non-purchase sessions."
+        counts = df[TARGET].value_counts().reindex(
+            [False, True],
+            fill_value=0
         )
 
-        fig, ax = plt.subplots(figsize=(7, 4))
+        fig, ax = plt.subplots(figsize=(6, 4))
 
-        bars = ax.bar(
-            ["Purchase", "No Purchase"],
-            [purchase_sessions, no_purchase_sessions],
-            color=[GREEN, BLUE],
-            width=0.55
+        ax.pie(
+            counts.values,
+            labels=["No Purchase", "Purchase"],
+            autopct="%1.1f%%",
+            startangle=90
         )
 
-        ax.bar_label(bars, padding=5, fmt="%,d")
-        ax.set_ylabel("Number of Sessions")
-        ax.set_title("Purchase vs No Purchase")
+        ax.set_title("Purchase vs Non-Purchase")
 
-        chart_style(ax)
-
-        fig.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig)
         plt.close(fig)
 
-    # MONTHLY TRENDS
     with right:
 
-        section(
-            "Monthly Session Trends",
-            "Number of sessions recorded in each month."
-        )
-
-        month_order = [
-            "Feb", "Mar", "May", "June", "Jul",
-            "Aug", "Sep", "Oct", "Nov", "Dec"
-        ]
-
-        counts = df["Month"].value_counts()
-
-        months = [
-            m for m in month_order
-            if m in counts.index
-        ]
-
-        months += [
-            m for m in counts.index
-            if m not in months
-        ]
-
-        monthly_values = counts.reindex(months).values
-
-        fig, ax = plt.subplots(figsize=(7, 4))
-
-        ax.plot(
-            months,
-            monthly_values,
-            color=BLUE,
-            linewidth=2.8,
-            marker="o"
-        )
-
-        ax.fill_between(
-            range(len(months)),
-            monthly_values,
-            alpha=0.12,
-            color=BLUE
-        )
-
-        ax.set_ylabel("Sessions")
-        ax.set_title("Sessions by Month")
-        ax.tick_params(axis="x", rotation=30)
-
-        chart_style(ax)
-
-        fig.tight_layout()
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-    st.write("")
-
-    left, right = st.columns(2, gap="large")
-
-    # VISITOR TYPE
-    with left:
-
-        section(
-            "Purchase Rate by Visitor Type",
-            "Percentage of sessions with Revenue=True."
-        )
-
-        visitor_rates = (
-            df.groupby("VisitorType")["Revenue"]
+        monthly = (
+            df.groupby("Month")[TARGET]
             .mean()
             .mul(100)
             .sort_values(ascending=False)
         )
 
-        fig, ax = plt.subplots(figsize=(7, 4))
+        fig, ax = plt.subplots(figsize=(6, 4))
 
-        bars = ax.bar(
-            visitor_rates.index.astype(str),
-            visitor_rates.values,
-            color=[BLUE, PURPLE, GREEN][:len(visitor_rates)]
-        )
+        monthly.plot(kind="bar", ax=ax)
 
-        ax.bar_label(
-            bars,
-            labels=[
-                f"{v:.1f}%"
-                for v in visitor_rates.values
-            ],
-            padding=4
-        )
-
+        ax.set_title("Purchase Rate by Month")
         ax.set_ylabel("Purchase Rate (%)")
-        ax.set_title("Visitor Type Analysis")
+        ax.set_xlabel("Month")
 
-        chart_style(ax)
-
-        fig.tight_layout()
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-    # SESSION BEHAVIOUR
-    with right:
-
-        section(
-            "Session Behaviour",
-            "Average Bounce Rate and Exit Rate."
-        )
-
-        behaviour = pd.Series({
-            "Bounce Rate": df["BounceRates"].mean() * 100,
-            "Exit Rate": df["ExitRates"].mean() * 100
-        })
-
-        fig, ax = plt.subplots(figsize=(7, 4))
-
-        bars = ax.bar(
-            behaviour.index,
-            behaviour.values,
-            color=[CYAN, ORANGE],
-            width=0.5
-        )
-
-        ax.bar_label(
-            bars,
-            labels=[
-                f"{v:.2f}%"
-                for v in behaviour.values
-            ],
-            padding=4
-        )
-
-        ax.set_ylabel("Average Rate (%)")
-        ax.set_title("Average Session Rates")
-
-        chart_style(ax)
+        plt.xticks(rotation=45)
 
         fig.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+
+        st.pyplot(fig)
         plt.close(fig)
+
+    st.divider()
+
+    st.markdown("### 🎯 Project Objective")
+
+    st.write(
+        "This project uses historical browsing-session features "
+        "to predict whether an online shopping session ends in a purchase."
+    )
+
+    st.write(
+        "It compares Logistic Regression, Random Forest, "
+        "and Gradient Boosting using held-out test data."
+    )
 
     st.info(
-        "Dataset limitation: this dataset contains session-level "
-        "Revenue outcomes. It does not contain actual cart additions, "
-        "checkout stages, order values or monetary revenue amounts. "
-        "Therefore, this dashboard uses real dataset indicators "
-        "instead of invented cart-abandonment or revenue figures."
+        "Revenue represents the purchase outcome. "
+        "A non-purchase session is not necessarily a confirmed "
+        "cart-abandonment event."
     )
 
 
 # =====================================================
-# 2. DATASET EXPLORER
+# 10. DATASET EXPLORER
 # =====================================================
+
 elif page == "📊 Dataset Explorer":
 
-    hero(
-        "Dataset Explorer",
-        "Explore records and understand your dataset.",
-        "📊"
+    st.markdown(
+        '<div class="main-title">📊 Dataset Explorer</div>',
+        unsafe_allow_html=True
     )
 
-    section("Dataset Summary")
-
-    a, b, c, d = st.columns(4)
-
-    a.metric("Total Rows", f"{len(df):,}")
-    b.metric("Total Columns", f"{len(df.columns)}")
-    c.metric(
-        "Missing Cells",
-        f"{int(df.isna().sum().sum()):,}"
+    st.write(
+        "Explore the Online Shoppers Purchasing Intention dataset."
     )
-    d.metric(
-        "Duplicate Rows",
-        f"{int(df.duplicated().sum()):,}"
-    )
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Total Rows", f"{len(df):,}")
+    c2.metric("Total Columns", df.shape[1])
+    c3.metric("Missing Values", int(df.isnull().sum().sum()))
+    c4.metric("Duplicate Rows", int(df.duplicated().sum()))
 
     st.divider()
 
-    section("Dataset Preview")
-
-    a, b = st.columns(2)
-
-    with a:
-        target_filter = st.selectbox(
-            "Filter Revenue",
-            ["All", "Purchase", "No Purchase"]
-        )
-
-    with b:
-        row_count = st.slider(
-            "Rows to display",
-            5,
-            min(200, len(df)),
-            min(25, len(df))
-        )
-
-    filtered_df = df.copy()
-
-    if target_filter == "Purchase":
-        filtered_df = filtered_df[
-            filtered_df["Revenue"] == 1
-        ]
-
-    elif target_filter == "No Purchase":
-        filtered_df = filtered_df[
-            filtered_df["Revenue"] == 0
-        ]
+    st.markdown("### Dataset Preview")
 
     st.dataframe(
-        filtered_df.head(row_count),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.divider()
-
-    section("Column Information")
-
-    info_df = pd.DataFrame({
-        "Column": df.columns,
-        "Data Type": [
-            str(x) for x in df.dtypes
-        ],
-        "Missing Values": [
-            int(df[col].isna().sum())
-            for col in df.columns
-        ],
-        "Unique Values": [
-            int(df[col].nunique())
-            for col in df.columns
-        ]
-    })
-
-    st.dataframe(
-        info_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.divider()
-
-    section("Statistical Summary")
-
-    st.dataframe(
-        df.describe(include="all").transpose(),
+        df.head(100),
         use_container_width=True
     )
 
-    st.download_button(
-        "⬇️ Download Dataset CSV",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="online_shoppers_intention.csv",
-        mime="text/csv"
+    st.markdown("### Data Types and Missing Values")
+
+    info = pd.DataFrame({
+        "Column": df.columns,
+        "Data Type": df.dtypes.astype(str).values,
+        "Missing Values": df.isnull().sum().values,
+        "Unique Values": df.nunique().values
+    })
+
+    st.dataframe(
+        info,
+        use_container_width=True
     )
 
+    st.markdown("### Statistical Summary")
+
+    st.dataframe(
+        df.describe(include="all"),
+        use_container_width=True
+    )
+
+    st.divider()
+
+    st.markdown("### Target Class Balance")
+
+    class_counts = df[TARGET].value_counts().reindex(
+        [False, True],
+        fill_value=0
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    class_counts.plot(kind="bar", ax=ax)
+
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(
+        ["No Purchase", "Purchase"],
+        rotation=0
+    )
+
+    ax.set_ylabel("Number of Sessions")
+    ax.set_title("Target Class Distribution")
+
+    fig.tight_layout()
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("### Numerical Feature Correlation")
+
+    numeric_df = df.select_dtypes(include=np.number)
+
+    correlation = numeric_df.corr()
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    image = ax.imshow(correlation, aspect="auto")
+
+    ax.set_xticks(range(len(correlation.columns)))
+    ax.set_yticks(range(len(correlation.columns)))
+
+    ax.set_xticklabels(
+        correlation.columns,
+        rotation=90
+    )
+
+    ax.set_yticklabels(correlation.columns)
+
+    ax.set_title("Correlation Matrix")
+
+    fig.colorbar(image, ax=ax)
+
+    fig.tight_layout()
+
+    st.pyplot(fig)
+    plt.close(fig)
+
 
 # =====================================================
-# 3. PURCHASE PREDICTOR
+# 11. PURCHASE PREDICTOR
 # =====================================================
+
 elif page == "🔮 Purchase Predictor":
 
-    hero(
-        "Purchase Intention Predictor",
-        "Enter visitor session information to estimate purchase probability.",
-        "🔮"
+    st.markdown(
+        '<div class="main-title">🔮 Purchase Predictor</div>',
+        unsafe_allow_html=True
     )
 
-    st.warning(
-        "Complete all 17 inputs. No prediction will be made "
-        "until the required information is entered."
+    st.write(
+        "Enter the 17 session features used by the trained model."
     )
+
+    st.info(
+        "Complete all 17 fields before clicking Predict Purchase."
+    )
+
+    if saved_model is None:
+
+        st.error(
+            "shopper_intent_model.pkl was not found in the project folder."
+        )
+
+        st.stop()
 
     with st.form("prediction_form"):
 
-        # PAGE ACTIVITY
-        section("A. Page Activity")
+        st.markdown("### Session Input Features")
 
-        a, b, c = st.columns(3)
+        col1, col2 = st.columns(2)
 
-        with a:
+        with col1:
+
             administrative = st.number_input(
-                "Administrative Pages",
+                "Administrative",
                 min_value=0,
                 value=None,
                 step=1,
-                placeholder="Enter number"
+                placeholder="Enter page count"
             )
 
             administrative_duration = st.number_input(
-                "Administrative Duration",
+                "Administrative_Duration",
                 min_value=0.0,
                 value=None,
                 placeholder="Enter duration"
             )
 
-        with b:
             informational = st.number_input(
-                "Informational Pages",
+                "Informational",
                 min_value=0,
                 value=None,
                 step=1,
-                placeholder="Enter number"
+                placeholder="Enter page count"
             )
 
             informational_duration = st.number_input(
-                "Informational Duration",
+                "Informational_Duration",
                 min_value=0.0,
                 value=None,
                 placeholder="Enter duration"
             )
 
-        with c:
             product_related = st.number_input(
-                "Product Related Pages",
+                "ProductRelated",
                 min_value=0,
                 value=None,
                 step=1,
-                placeholder="Enter number"
+                placeholder="Enter page count"
             )
 
             product_related_duration = st.number_input(
-                "Product Related Duration",
+                "ProductRelated_Duration",
                 min_value=0.0,
                 value=None,
                 placeholder="Enter duration"
             )
 
-        st.divider()
-
-        # SESSION BEHAVIOUR
-        section("B. Session Behaviour")
-
-        a, b, c = st.columns(3)
-
-        with a:
-            bounce_rate = st.number_input(
-                "Bounce Rate (0–1)",
+            bounce_rates = st.number_input(
+                "BounceRates",
                 min_value=0.0,
                 max_value=1.0,
                 value=None,
                 format="%.4f",
-                placeholder="Example: 0.02"
+                placeholder="Enter 0 to 1"
             )
 
-        with b:
-            exit_rate = st.number_input(
-                "Exit Rate (0–1)",
+            exit_rates = st.number_input(
+                "ExitRates",
                 min_value=0.0,
                 max_value=1.0,
                 value=None,
                 format="%.4f",
-                placeholder="Example: 0.03"
+                placeholder="Enter 0 to 1"
             )
 
-        with c:
             page_values = st.number_input(
-                "Page Values",
+                "PageValues",
                 min_value=0.0,
                 value=None,
-                placeholder="Enter value"
+                placeholder="Enter page value"
             )
 
-        special_day = st.number_input(
-            "Special Day (0–1)",
-            min_value=0.0,
-            max_value=1.0,
-            value=None,
-            step=0.1,
-            placeholder="Example: 0.0"
-        )
+        with col2:
 
-        st.divider()
+            special_options = sorted(
+                df["SpecialDay"].dropna().unique().tolist()
+            )
 
-        # VISITOR INFORMATION
-        section("C. Visitor Information")
+            special_day = st.selectbox(
+                "SpecialDay",
+                [None] + special_options,
+                format_func=lambda x:
+                "Select SpecialDay" if x is None else str(x)
+            )
 
-        a, b, c = st.columns(3)
+            month_options = sorted(
+                df["Month"].dropna().unique().tolist()
+            )
 
-        with a:
             month = st.selectbox(
                 "Month",
-                ["Choose Month"] +
-                sorted(
-                    df["Month"].dropna().unique().tolist()
-                )
+                [None] + month_options,
+                format_func=lambda x:
+                "Select Month" if x is None else str(x)
             )
 
-        with b:
-            visitor_type = st.selectbox(
-                "Visitor Type",
-                ["Choose Visitor Type"] +
-                sorted(
-                    df["VisitorType"].dropna().unique().tolist()
-                )
+            operating_options = sorted(
+                df["OperatingSystems"].dropna().unique().tolist()
             )
 
-        with c:
-            weekend = st.selectbox(
-                "Weekend",
-                ["Choose Option", "Yes", "No"]
-            )
-
-        st.divider()
-
-        # TECHNOLOGY
-        section("D. Visitor Technology")
-
-        a, b, c, d = st.columns(4)
-
-        with a:
             operating_system = st.selectbox(
-                "Operating System",
-                ["Choose OS"] +
-                sorted(
-                    df["OperatingSystems"].dropna().unique().tolist()
-                )
+                "OperatingSystems",
+                [None] + operating_options,
+                format_func=lambda x:
+                "Select Operating System" if x is None else str(x)
             )
 
-        with b:
+            browser_options = sorted(
+                df["Browser"].dropna().unique().tolist()
+            )
+
             browser = st.selectbox(
                 "Browser",
-                ["Choose Browser"] +
-                sorted(
-                    df["Browser"].dropna().unique().tolist()
-                )
+                [None] + browser_options,
+                format_func=lambda x:
+                "Select Browser" if x is None else str(x)
             )
 
-        with c:
+            region_options = sorted(
+                df["Region"].dropna().unique().tolist()
+            )
+
             region = st.selectbox(
                 "Region",
-                ["Choose Region"] +
-                sorted(
-                    df["Region"].dropna().unique().tolist()
-                )
+                [None] + region_options,
+                format_func=lambda x:
+                "Select Region" if x is None else str(x)
             )
 
-        with d:
-            traffic_type = st.selectbox(
-                "Traffic Type",
-                ["Choose Traffic"] +
-                sorted(
-                    df["TrafficType"].dropna().unique().tolist()
-                )
+            traffic_options = sorted(
+                df["TrafficType"].dropna().unique().tolist()
+            )
+
+            traffic = st.selectbox(
+                "TrafficType",
+                [None] + traffic_options,
+                format_func=lambda x:
+                "Select Traffic Type" if x is None else str(x)
+            )
+
+            visitor_options = sorted(
+                df["VisitorType"].dropna().unique().tolist()
+            )
+
+            visitor_type = st.selectbox(
+                "VisitorType",
+                [None] + visitor_options,
+                format_func=lambda x:
+                "Select Visitor Type" if x is None else str(x)
+            )
+
+            weekend = st.selectbox(
+                "Weekend",
+                [None, True, False],
+                format_func=lambda x:
+                "Select Weekend"
+                if x is None
+                else ("Yes" if x else "No")
             )
 
         submitted = st.form_submit_button(
-            "🚀 Predict Purchase",
+            "🔮 Predict Purchase",
             use_container_width=True
         )
 
-    # PROCESS FORM
     if submitted:
 
-        numeric_inputs = {
-            "Administrative Pages": administrative,
-            "Administrative Duration": administrative_duration,
-            "Informational Pages": informational,
-            "Informational Duration": informational_duration,
-            "Product Related Pages": product_related,
-            "Product Related Duration": product_related_duration,
-            "Bounce Rate": bounce_rate,
-            "Exit Rate": exit_rate,
-            "Page Values": page_values,
-            "Special Day": special_day
-        }
-
-        missing = [
-            name
-            for name, value in numeric_inputs.items()
-            if value is None
+        values = [
+            administrative,
+            administrative_duration,
+            informational,
+            informational_duration,
+            product_related,
+            product_related_duration,
+            bounce_rates,
+            exit_rates,
+            page_values,
+            special_day,
+            month,
+            operating_system,
+            browser,
+            region,
+            traffic,
+            visitor_type,
+            weekend
         ]
 
-        choices = {
-            "Month": (month, "Choose Month"),
-            "Visitor Type": (visitor_type, "Choose Visitor Type"),
-            "Weekend": (weekend, "Choose Option"),
-            "Operating System": (operating_system, "Choose OS"),
-            "Browser": (browser, "Choose Browser"),
-            "Region": (region, "Choose Region"),
-            "Traffic Type": (traffic_type, "Choose Traffic")
-        }
-
-        for name, (value, placeholder) in choices.items():
-            if value == placeholder:
-                missing.append(name)
-
-        if missing:
+        if any(value is None for value in values):
 
             st.error(
-                "Please complete: " + ", ".join(missing)
+                "Please complete all 17 input fields before prediction."
             )
 
         else:
 
-            input_values = {
-                "Administrative": administrative,
-                "Administrative_Duration": administrative_duration,
-                "Informational": informational,
-                "Informational_Duration": informational_duration,
-                "ProductRelated": product_related,
-                "ProductRelated_Duration": product_related_duration,
-                "BounceRates": bounce_rate,
-                "ExitRates": exit_rate,
-                "PageValues": page_values,
-                "SpecialDay": special_day,
-                "Month": month,
-                "OperatingSystems": operating_system,
-                "Browser": browser,
-                "Region": region,
-                "TrafficType": traffic_type,
-                "VisitorType": visitor_type,
-                "Weekend": weekend == "Yes"
-            }
+            input_data = pd.DataFrame([{
 
-            input_df = pd.DataFrame(
-                [input_values]
-            )[FEATURE_COLUMNS]
+                "Administrative": int(administrative),
+
+                "Administrative_Duration": float(
+                    administrative_duration
+                ),
+
+                "Informational": int(informational),
+
+                "Informational_Duration": float(
+                    informational_duration
+                ),
+
+                "ProductRelated": int(product_related),
+
+                "ProductRelated_Duration": float(
+                    product_related_duration
+                ),
+
+                "BounceRates": float(bounce_rates),
+
+                "ExitRates": float(exit_rates),
+
+                "PageValues": float(page_values),
+
+                "SpecialDay": float(special_day),
+
+                "Month": str(month),
+
+                "OperatingSystems": operating_system,
+
+                "Browser": browser,
+
+                "Region": region,
+
+                "TrafficType": traffic,
+
+                "VisitorType": visitor_type,
+
+                "Weekend": bool(weekend)
+
+            }], columns=FEATURES)
 
             try:
 
-                prediction = int(
-                    model.predict(input_df)[0]
-                )
+                prediction = saved_model.predict(
+                    input_data
+                )[0]
 
-                probability = float(
-                    get_purchase_probability(model, input_df)[0]
-                )
+                probability = None
+
+                if hasattr(saved_model, "predict_proba"):
+
+                    probabilities = saved_model.predict_proba(
+                        input_data
+                    )[0]
+
+                    classes = list(saved_model.classes_)
+
+                    positive_index = next(
+                        (
+                            i for i, value in enumerate(classes)
+                            if value in [True, 1]
+                        ),
+                        None
+                    )
+
+                    if positive_index is not None:
+
+                        probability = (
+                            probabilities[positive_index] * 100
+                        )
 
                 st.divider()
 
-                section("Prediction Result")
+                st.markdown("### Prediction Result")
 
-                a, b = st.columns(2)
+                if prediction in [True, 1]:
 
-                a.metric(
-                    "Purchase Probability",
-                    f"{probability:.2%}"
-                )
+                    st.success("🛒 Purchase Predicted")
 
-                b.metric(
-                    "Predicted Outcome",
-                    "Purchase" if prediction == 1
-                    else "No Purchase"
-                )
-
-                st.progress(
-                    max(0.0, min(1.0, probability))
-                )
-
-                if prediction == 1:
-                    st.success(
-                        "🛒 Model Prediction: Purchase"
-                    )
                 else:
-                    st.info(
-                        "👀 Model Prediction: No Purchase"
+
+                    st.warning("No Purchase Predicted")
+
+                if probability is not None:
+
+                    st.metric(
+                        "Estimated Purchase Probability",
+                        f"{probability:.2f}%"
+                    )
+
+                    st.progress(
+                        float(probability / 100)
                     )
 
                 st.caption(
-                    "This is an estimate from the saved model. "
-                    "PageValues may contain information that is not "
-                    "available early in a real visitor session."
+                    "This is a hypothetical prediction based on "
+                    "historical session data, not a guarantee."
                 )
 
+                with st.expander("View Input Features"):
+
+                    st.dataframe(
+                        input_data,
+                        use_container_width=True
+                    )
+
             except Exception as e:
-                st.error(f"Prediction failed: {e}")
+
+                st.error(f"Prediction error: {e}")
+                st.exception(e)
 
 
 # =====================================================
-# 4. MODEL EVALUATION
+# 12. MODEL EVALUATION
 # =====================================================
+
 elif page == "📈 Model Evaluation":
 
-    hero(
-        "Model Evaluation Center",
-        "Evaluate the saved Gradient Boosting model.",
-        "📈"
+    st.markdown(
+        '<div class="main-title">📈 Model Evaluation</div>',
+        unsafe_allow_html=True
     )
 
-    st.warning(
-        "The evaluation split must match your original notebook: "
-        "test_size=0.2, random_state=42, stratify=y, "
-        "and the same row order and preprocessing."
+    st.write(
+        "Compare the performance of three machine learning models."
     )
 
-    try:
+    st.info(
+        "All models use the same stratified train/test split. "
+        "Accuracy is not considered alone because the target is imbalanced."
+    )
 
-        X = df[FEATURE_COLUMNS].copy()
-        y = df["Revenue"].astype(int)
+    results_df = pd.DataFrame(model_results).T
 
-        _, X_test, _, y_test = train_test_split(
-            X,
-            y,
-            test_size=0.2,
-            random_state=42,
-            stratify=y
-        )
+    st.markdown("### Model Comparison")
 
-        y_pred = model.predict(X_test)
+    st.dataframe(
+        results_df.style.format("{:.4f}"),
+        use_container_width=True
+    )
 
-        y_prob = get_purchase_probability(
-            model,
-            X_test
-        )
+    st.markdown("### Performance Comparison")
 
-        accuracy = accuracy_score(y_test, y_pred)
+    selected_metric = st.selectbox(
+        "Select Evaluation Metric",
+        [
+            "Accuracy",
+            "Precision",
+            "Recall",
+            "F1 Score",
+            "ROC-AUC"
+        ]
+    )
 
-        precision = precision_score(
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    results_df[selected_metric].plot(
+        kind="bar",
+        ax=ax
+    )
+
+    ax.set_title(
+        f"Model Comparison - {selected_metric}"
+    )
+
+    ax.set_ylabel(selected_metric)
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("Model")
+
+    plt.xticks(rotation=15)
+
+    fig.tight_layout()
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.divider()
+
+    st.markdown("### Confusion Matrix")
+
+    selected_model_name = st.selectbox(
+        "Choose Model",
+        list(fitted_models.keys())
+    )
+
+    selected_model = fitted_models[selected_model_name]
+
+    predictions = selected_model.predict(X_test)
+
+    cm = confusion_matrix(
+        y_test,
+        predictions,
+        labels=[False, True]
+    )
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    ax.imshow(cm)
+
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+
+    ax.set_xticklabels(
+        ["No Purchase", "Purchase"]
+    )
+
+    ax.set_yticklabels(
+        ["No Purchase", "Purchase"]
+    )
+
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+
+    ax.set_title(
+        f"{selected_model_name} Confusion Matrix"
+    )
+
+    for i in range(2):
+
+        for j in range(2):
+
+            ax.text(
+                j,
+                i,
+                cm[i, j],
+                ha="center",
+                va="center"
+            )
+
+    fig.tight_layout()
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("### Classification Report")
+
+    report = classification_report(
+        y_test,
+        predictions,
+        output_dict=True,
+        zero_division=0
+    )
+
+    st.dataframe(
+        pd.DataFrame(report).T,
+        use_container_width=True
+    )
+
+    st.markdown("### ROC Curve Comparison")
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    for name, model in fitted_models.items():
+
+        probabilities = model.predict_proba(X_test)[:, 1]
+
+        RocCurveDisplay.from_predictions(
             y_test,
-            y_pred,
-            zero_division=0
+            probabilities,
+            name=name,
+            ax=ax
         )
 
-        recall = recall_score(
-            y_test,
-            y_pred,
-            zero_division=0
-        )
+    ax.set_title("ROC Curve Comparison")
 
-        f1 = f1_score(
-            y_test,
-            y_pred,
-            zero_division=0
-        )
+    fig.tight_layout()
 
-        auc = roc_auc_score(
-            y_test,
-            y_prob
-        )
+    st.pyplot(fig)
+    plt.close(fig)
 
-        section("Model Performance Metrics")
 
-        a, b, c, d, e = st.columns(5)
+# =====================================================
+# 13. FEATURE IMPORTANCE
+# =====================================================
 
-        a.metric("Accuracy", f"{accuracy:.2%}")
-        b.metric("Precision", f"{precision:.2%}")
-        c.metric("Recall", f"{recall:.2%}")
-        d.metric("F1-score", f"{f1:.2%}")
-        e.metric("ROC-AUC", f"{auc:.4f}")
+elif page == "⭐ Feature Importance":
 
-        st.divider()
+    st.markdown(
+        '<div class="main-title">⭐ Feature Importance</div>',
+        unsafe_allow_html=True
+    )
 
-        left, right = st.columns(2, gap="large")
+    st.write(
+        "Explore which features influence model predictions."
+    )
 
-        # CONFUSION MATRIX
-        with left:
+    st.info(
+        "Feature importance shows model reliance or association. "
+        "It does not prove that a feature causes a purchase."
+    )
 
-            section("Confusion Matrix")
+    selected_name = st.selectbox(
+        "Select Model",
+        [
+            "Logistic Regression",
+            "Random Forest",
+            "Gradient Boosting"
+        ]
+    )
 
-            cm = confusion_matrix(
+    selected_model = fitted_models[selected_name]
+
+    with st.spinner("Calculating feature importance..."):
+
+        try:
+
+            permutation = permutation_importance(
+                selected_model,
+                X_test,
                 y_test,
-                y_pred,
-                labels=[0, 1]
+                scoring="roc_auc",
+                n_repeats=3,
+                random_state=42,
+                n_jobs=-1
             )
 
-            fig, ax = plt.subplots(figsize=(6, 5))
+            importance_df = pd.DataFrame({
 
-            display = ConfusionMatrixDisplay(
-                confusion_matrix=cm,
-                display_labels=[
-                    "No Purchase",
-                    "Purchase"
-                ]
+                "Feature": FEATURES,
+
+                "Importance": permutation.importances_mean
+
+            })
+
+            importance_df = importance_df.sort_values(
+                "Importance",
+                ascending=False
             )
 
-            display.plot(
-                ax=ax,
-                values_format="d",
-                colorbar=False,
-                cmap="Blues"
+            st.markdown("### Feature Importance Ranking")
+
+            st.dataframe(
+                importance_df,
+                use_container_width=True
+            )
+
+            fig, ax = plt.subplots(figsize=(10, 7))
+
+            plot_data = importance_df.sort_values(
+                "Importance",
+                ascending=True
+            )
+
+            ax.barh(
+                plot_data["Feature"],
+                plot_data["Importance"]
             )
 
             ax.set_title(
-                "Actual vs Predicted",
-                color=NAVY
+                f"Permutation Feature Importance - {selected_name}"
+            )
+
+            ax.set_xlabel(
+                "Decrease in ROC-AUC after shuffling"
             )
 
             fig.tight_layout()
 
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig)
             plt.close(fig)
 
-            tn, fp, fn, tp = cm.ravel()
+        except Exception as e:
 
-            st.metric("True Negatives", f"{tn:,}")
-            st.metric("False Positives", f"{fp:,}")
-            st.metric("False Negatives", f"{fn:,}")
-            st.metric("True Positives", f"{tp:,}")
-
-        # ROC CURVE
-        with right:
-
-            section("ROC Curve")
-
-            fpr, tpr, _ = roc_curve(
-                y_test,
-                y_prob
-            )
-
-            fig, ax = plt.subplots(figsize=(6, 5))
-
-            ax.plot(
-                fpr,
-                tpr,
-                color=PURPLE,
-                linewidth=2.7,
-                label=f"Gradient Boosting (AUC={auc:.4f})"
-            )
-
-            ax.plot(
-                [0, 1],
-                [0, 1],
-                color="#94A3B8",
-                linestyle="--",
-                label="Random Classifier"
-            )
-
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1.05)
-
-            ax.set_xlabel("False Positive Rate")
-            ax.set_ylabel("True Positive Rate")
-            ax.set_title("Receiver Operating Characteristic")
-
-            ax.legend(loc="lower right")
-
-            chart_style(ax)
-
-            fig.tight_layout()
-
-            st.pyplot(fig, use_container_width=True)
-            plt.close(fig)
-
-            st.info(
-                "ROC-AUC measures how well the model ranks "
-                "purchase sessions above non-purchase sessions."
-            )
-
-        st.divider()
-
-        section("Metric Guide")
-
-        with st.expander("Accuracy"):
-            st.write(
-                "Percentage of all test predictions that were correct."
-            )
-
-        with st.expander("Precision"):
-            st.write(
-                "Of sessions predicted as Purchase, "
-                "how many actually purchased."
-            )
-
-        with st.expander("Recall"):
-            st.write(
-                "Of all actual purchase sessions, "
-                "how many the model detected."
-            )
-
-        with st.expander("F1-score"):
-            st.write(
-                "Harmonic mean of precision and recall."
-            )
-
-        with st.expander("ROC-AUC"):
-            st.write(
-                "Measures how well the model ranks "
-                "the two classes across thresholds."
-            )
-
-        metrics_df = pd.DataFrame({
-            "Metric": [
-                "Accuracy",
-                "Precision",
-                "Recall",
-                "F1-score",
-                "ROC-AUC"
-            ],
-            "Score": [
-                accuracy,
-                precision,
-                recall,
-                f1,
-                auc
-            ]
-        })
-
-        st.download_button(
-            "⬇️ Download Evaluation Metrics",
-            data=metrics_df.to_csv(
-                index=False
-            ).encode("utf-8"),
-            file_name="model_evaluation_metrics.csv",
-            mime="text/csv"
-        )
-
-        st.caption(
-            "Important: PageValues may contain information "
-            "unavailable before purchase. Test a separate model "
-            "without PageValues for pre-purchase prediction."
-        )
-
-    except Exception as e:
-
-        st.error(f"Evaluation failed: {e}")
-
-        st.info(
-            "Check your model file, dataset columns, "
-            "training split and preprocessing."
-        )
+            st.error(f"Feature importance error: {e}")
+            st.exception(e)
 
 
 # =====================================================
-# FOOTER
+# 14. FOOTER
 # =====================================================
-footer()
+
+st.divider()
+
+st.caption(
+    "Online Shopper Intent Analyzer | "
+    "Supervised Binary Classification"
+)
+
+st.caption(
+    "Academic Machine Learning Project"
+)
